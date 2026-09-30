@@ -20,7 +20,8 @@ leave both options enabled. Compensation is fixed at 1; cutoff choices are
 cockpit surfaces. This correction applies to all covered surfaces within that
 depth, including head translation; leaning parallax can be reduced.
 
-The ACR mono/single-view compatibility guard (v0.4) is built into the backend.
+The working ACR mono/single-view compatibility guard (v0.3) is built into the backend.
+It guards ten native callers while preserving the shared stereo predicates.
 It checks the executable version and native code before installing. When the
 built-in hook is installed, the plugin loader skips existing
 `ACR_AFWSingleViewCrashFix.dll` and `ACR_MonoCompatibility.dll` files to avoid

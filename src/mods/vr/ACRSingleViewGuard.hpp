@@ -5,25 +5,12 @@
 #include <safetyhook/context.hpp>
 
 namespace acr_single_view {
-// Native true-return path. RBX still holds the original view argument here.
-inline constexpr std::uintptr_t hook_rva = 0x434a577;
-inline constexpr std::uintptr_t unpaired_rva = 0x434a57f;
+inline constexpr std::uintptr_t hook_rva = 0x2cf000f;
+inline constexpr std::uintptr_t unpaired_rva = 0x2cf00bb;
 inline constexpr std::uintptr_t predicate_rva = 0x434a550;
 inline constexpr std::uintptr_t lookup_rva = 0x43453e0;
-inline constexpr std::uintptr_t arena_begin = 0x25a0000;
-inline constexpr std::uintptr_t arena_end = 0x65b0000;
-
-using Lookup = void* (*)(void*);
-
-// Run only after every original paired-view condition has succeeded. A real
-// partner keeps the complete native context. A missing partner redirects to
-// the predicate's own false-return epilogue, making all consumers agree.
-inline bool guard_paired_return(safetyhook::Context& context, Lookup lookup,
-                                std::uintptr_t false_epilogue) {
-    if (lookup(reinterpret_cast<void*>(context.rbx)) != nullptr) return false;
-    context.rip = false_epilogue;
-    return true;
-}
+inline constexpr std::uintptr_t arena_begin = 0x25b0000;
+inline constexpr std::uintptr_t arena_end = 0x44a8000;
 
 struct Signature { std::uintptr_t rva; std::string_view hex; };
 inline constexpr Signature signatures[] = {

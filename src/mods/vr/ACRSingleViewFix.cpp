@@ -1,6 +1,8 @@
 #include "ACRSingleViewFix.hpp"
 #include "ACRSingleViewGuard.hpp"
+#include "ACRSingleViewCallerSites.hpp"
 
+#include <array>
 #include <atomic>
 #include <mutex>
 #include <windows.h>
@@ -10,18 +12,23 @@
 namespace acr_single_view_fix {
 namespace {
 acr_single_view::Lookup lookup_partner{};
-std::uintptr_t false_epilogue{};
-safetyhook::MidHook paired_guard{};
+std::array<safetyhook::MidHook, std::size(acr_single_view::caller_sites)> crash_guards{};
 std::once_flag installation{};
 std::atomic_bool active{false};
-std::atomic_bool reported{false};
+std::array<std::atomic_bool, std::size(acr_single_view::caller_sites)> reported{};
 
+template <std::size_t Index>
 void missing_partner(safetyhook::Context& context) {
-    if (!acr_single_view::guard_paired_return(context, lookup_partner, false_epilogue)) return;
-    if (!reported.exchange(true)) {
-        spdlog::info("[ACR SingleViewFix] Missing secondary view: native paired-view predicate returns false for every consumer.");
+    const auto& site = acr_single_view::caller_sites[Index];
+    if (!acr_single_view::guard_native_caller(context, site, lookup_partner)) return;
+    if (!reported[Index].exchange(true)) {
+        spdlog::info("[ACR SingleViewFix] Missing secondary view at native caller +{:x}; taking its existing single-view branch.", site.hook);
     }
 }
+
+constexpr std::array callbacks{missing_partner<0>, missing_partner<1>, missing_partner<2>,
+    missing_partner<3>, missing_partner<4>, missing_partner<5>, missing_partner<6>,
+    missing_partner<7>, missing_partner<8>, missing_partner<9>};
 
 void install_once() {
     const auto base = reinterpret_cast<unsigned char*>(GetModuleHandleW(L"acr.exe"));
@@ -53,27 +60,28 @@ void install_once() {
         }
     }
 
+    for (const auto& site : acr_single_view::caller_sites) {
+        const auto size = site.signature.size() / 2;
+        if (site.signature_start >= nt->OptionalHeader.SizeOfImage ||
+            size > nt->OptionalHeader.SizeOfImage - site.signature_start ||
+            !acr_single_view::matches(base + site.signature_start, site.signature)) {
+            spdlog::error("[ACR SingleViewFix] Native caller signature mismatch at +{:x}; no hook installed.", site.signature_start);
+            return;
+        }
+    }
+
     lookup_partner = reinterpret_cast<acr_single_view::Lookup>(base + acr_single_view::lookup_rva);
-    false_epilogue = reinterpret_cast<std::uintptr_t>(base) + acr_single_view::unpaired_rva;
-    auto result = safetyhook::MidHook::create(base + acr_single_view::hook_rva, missing_partner,
-        safetyhook::MidHook::StartDisabled);
-    if (!result) {
-        spdlog::error("[ACR SingleViewFix] Paired-view return hook failed; no hook installed.");
-        return;
-    }
-    if (acr_single_view::hook_rva + result->original_bytes().size() > acr_single_view::unpaired_rva) {
-        result->reset();
-        spdlog::error("[ACR SingleViewFix] Hook would overlap the false-return path; removed without activation.");
-        return;
-    }
-    paired_guard = std::move(*result);
-    if (!paired_guard.enable()) {
-        paired_guard.reset();
-        spdlog::error("[ACR SingleViewFix] Hook activation failed; no hook installed.");
-        return;
+    for (std::size_t i = 0; i < crash_guards.size(); ++i) {
+        auto result = safetyhook::MidHook::create(base + acr_single_view::caller_sites[i].hook, callbacks[i]);
+        if (!result) {
+            for (auto& hook : crash_guards) hook.reset();
+            spdlog::error("[ACR SingleViewFix] Native caller hook failed; rolled back all hooks.");
+            return;
+        }
+        crash_guards[i] = std::move(*result);
     }
     active.store(true);
-    spdlog::info("[ACR SingleViewFix] Built-in v0.4 guard installed: one native paired-view return hook.");
+    spdlog::info("[ACR SingleViewFix] Built-in v0.3 installed: 10 native caller checks. Global stereo predicates and AFW view data remain original.");
 }
 }
 
