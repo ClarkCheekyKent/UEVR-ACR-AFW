@@ -20,10 +20,12 @@ leave both options enabled. Compensation is fixed at 1; cutoff choices are
 cockpit surfaces. This correction applies to all covered surfaces within that
 depth, including head translation; leaning parallax can be reduced.
 
-Keep `ACR_AFWSingleViewCrashFix.dll` v0.4 as the separate mono/single-view
-compatibility plugin in the ACR profile. Do not also load the older
-`ACR_MonoCompatibility.dll`. ACR Camera Bridge and CheekyFoveatedDLSS remain
-separate plugins with their existing settings; this backend does not replace them.
+The ACR mono/single-view compatibility guard (v0.4) is built into the backend.
+It checks the executable version and native code before installing. When the
+built-in hook is installed, the plugin loader skips existing
+`ACR_AFWSingleViewCrashFix.dll` and `ACR_MonoCompatibility.dll` files to avoid
+duplicate hooks; the files are not removed. ACR Camera Bridge and
+CheekyFoveatedDLSS remain separate plugins with their existing settings.
 
 ## Build
 
@@ -31,8 +33,7 @@ Follow [COMPILING.md](COMPILING.md) with authenticated upstream UESDK access.
 The SDK is pinned to upstream; CMake applies `patches/UESDK-ACR-compatibility.patch`
 idempotently so this repository does not need a private SDK commit or SDK mirror.
 Use `cmake --build build --config Release --target uevr --parallel 1`.
-Concurrent compiler jobs default OFF to limit RAM. Build the separate compatibility
-DLL with target `ACR_AFWSingleViewCrashFix`. The five-cutoff shader data is copied
+Concurrent compiler jobs default OFF to limit RAM. The five-cutoff shader data is copied
 beside the backend automatically; it is not embedded in shared C++ headers.
 
 The prior uncleaned package was confirmed working in the headset. This cleaned

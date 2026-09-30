@@ -1,6 +1,0 @@
-add_library(ACR_AFWSingleViewCrashFix SHARED Plugin.cpp)
-target_include_directories(ACR_AFWSingleViewCrashFix PRIVATE "${PROJECT_SOURCE_DIR}/include")
-target_link_libraries(ACR_AFWSingleViewCrashFix PRIVATE safetyhook::safetyhook)
-target_compile_definitions(ACR_AFWSingleViewCrashFix PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
-target_compile_options(ACR_AFWSingleViewCrashFix PRIVATE /EHsc /W4)
-set_target_properties(ACR_AFWSingleViewCrashFix PROPERTIES RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/bin/plugins")

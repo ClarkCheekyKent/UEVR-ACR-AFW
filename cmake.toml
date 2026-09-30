@@ -318,7 +318,6 @@ add_custom_command(
 add_custom_command(TARGET uevr POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
     ${CMAKE_SOURCE_DIR}/src/mods/vr/cockpit_shaders/AFWHistoryShaders.bin $<TARGET_FILE_DIR:uevr>)
-add_subdirectory(plugins/ACR_AFWSingleViewCrashFix)
 
 # Build the RenderDoc launcher + smoke tools and stage renderdoc.dll beside
 # UEVRBackend.dll. No-op if RenderDoc isn't available on this machine.

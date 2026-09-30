@@ -793,6 +793,7 @@ list(APPEND uevr_SOURCES
 	"src/mods/vr/CVarManager.cpp"
 	"src/mods/vr/D3D11Component.cpp"
 	"src/mods/vr/AFWCockpitFix.cpp"
+	"src/mods/vr/ACRSingleViewFix.cpp"
 	"src/mods/vr/D3D12Component.cpp"
 	"src/mods/vr/FFakeStereoRenderingHook.cpp"
 	"src/mods/vr/IXRTrackingSystemHook.cpp"
@@ -965,4 +966,3 @@ unset(CMKR_SOURCES)
 
 add_custom_command(TARGET uevr POST_BUILD
  COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/src/mods/vr/cockpit_shaders/AFWHistoryShaders.bin" $<TARGET_FILE_DIR:uevr>)
-add_subdirectory(plugins/ACR_AFWSingleViewCrashFix)
