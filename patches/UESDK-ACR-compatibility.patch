@@ -1,0 +1,179 @@
+diff --git a/src/sdk/FMalloc.cpp b/src/sdk/FMalloc.cpp
+index 2f77aee..84c4723 100644
+--- a/src/sdk/FMalloc.cpp
++++ b/src/sdk/FMalloc.cpp
+@@ -60,6 +60,7 @@ FMalloc* FMalloc::get() {
+         FMalloc** result = nullptr;
+ 
+         std::unordered_set<uintptr_t> seen_displacements{};
++        size_t allocator_candidate_count = 0;
+ 
+         utility::exhaustive_decode((uint8_t*)*object_base_init_fn, 100, [&](utility::ExhaustionContext& ctx) -> utility::ExhaustionResult {
+             if (result != nullptr) {
+@@ -102,6 +103,8 @@ FMalloc* FMalloc::get() {
+                 return utility::ExhaustionResult::CONTINUE;
+             }
+ 
++            ++allocator_candidate_count;
++
+             for (auto i = 0; i < 30; ++i) {
+                 const auto fn = (uintptr_t)vtable[i];
+ 
+@@ -160,7 +163,10 @@ FMalloc* FMalloc::get() {
+         });
+ 
+         if (!result) {
+-            SPDLOG_ERROR("[FMalloc::get] Failed to find GMalloc");
++            SPDLOG_ERROR(
++                "[FMalloc::get] Failed to find GMalloc after checking {} unique displacements and {} allocator-like candidates",
++                seen_displacements.size(),
++                allocator_candidate_count);
+             return nullptr;
+         }
+ 
+@@ -313,4 +319,4 @@ FMalloc* FMalloc::get() {
+ 
+     return *result;
+ }
+-}
+\ No newline at end of file
++}
+diff --git a/src/sdk/FSceneView.cpp b/src/sdk/FSceneView.cpp
+index a1517b2..4d3113c 100644
+--- a/src/sdk/FSceneView.cpp
++++ b/src/sdk/FSceneView.cpp
+@@ -11,6 +11,7 @@
+ #include "Utility.hpp"
+ #include "EngineModule.hpp"
+ #include "FSceneView.hpp"
++#include "SceneViewStereoLayout.hpp"
+ 
+ namespace sdk {
+ void FSceneViewInitOptionsBase::update_offsets(FSceneViewInitOptionsBase* options) {
+@@ -89,10 +90,15 @@ void FSceneViewInitOptionsBase::update_offsets(FSceneViewInitOptionsBase* option
+         }
+     }
+ 
+-    //s_stereo_pass_offset = *s_scene_state_offset + 0x50; // Usually true. If not, weird engine changes have been made.
+-    s_stereo_pass_offset = *s_view_family_offset + (uint32_t)(offsetof(FSceneViewInitOptionsUE4, stereo_pass) - offsetof(FSceneViewInitOptionsUE4, family));
+     static_assert((offsetof(FSceneViewInitOptionsUE4, stereo_pass) - offsetof(FSceneViewInitOptionsUE4, family) == 0x58), "FSceneViewInitOptionsUE4 stereo_pass offset is not 0x58");
+ 
++    const auto engine_version = sdk::search_for_version(utility::get_executable()).value_or(L"");
++    const auto file_version = engine_version.empty() ? sdk::get_file_version_info() : VS_FIXEDFILEINFO{};
++    const auto stereo_delta = scene_view_stereo_pass_delta(
++        engine_version, HIWORD(file_version.dwFileVersionMS), LOWORD(file_version.dwFileVersionMS));
++    s_stereo_pass_offset = *s_view_family_offset + stereo_delta;
++    SPDLOG_INFO("[FSceneViewInitOptions] Stereo pass layout delta: {:x} (UE5.6/5.7 color fix)", stereo_delta);
++
+     SPDLOG_INFO("[FSceneViewInitOptions] Found stereo pass offset at {:x}", *s_stereo_pass_offset);
+ }
+ 
+@@ -263,4 +269,4 @@ std::optional<uintptr_t> FSceneView::get_constructor_address() {
+ 
+     return fn_addr;
+ }
+-}
+\ No newline at end of file
++}
+diff --git a/src/sdk/SceneViewStereoLayout.hpp b/src/sdk/SceneViewStereoLayout.hpp
+new file mode 100644
+index 0000000..73a010b
+--- /dev/null
++++ b/src/sdk/SceneViewStereoLayout.hpp
+@@ -0,0 +1,15 @@
++#pragma once
++
++#include <cstdint>
++#include <string_view>
++
++namespace sdk {
++// UE5.6/5.7 inserted exposure-state and view-owner fields before the colors.
++// The old +0x58 stereo-pass offset now addresses ColorScale.R.
++constexpr uint32_t scene_view_stereo_pass_delta(
++    std::wstring_view engine_version, uint32_t file_major, uint32_t file_minor) {
++    const bool modern = engine_version == L"5.6" || engine_version == L"5.7" ||
++        (engine_version.empty() && file_major == 5 && (file_minor == 6 || file_minor == 7));
++    return modern ? 0x68U : 0x58U;
++}
++}
+diff --git a/src/sdk/StereoStuff.cpp b/src/sdk/StereoStuff.cpp
+index 8353d83..9b3d6c8 100644
+--- a/src/sdk/StereoStuff.cpp
++++ b/src/sdk/StereoStuff.cpp
+@@ -109,10 +109,16 @@ void* FRHITexture::get_native_resource() const {
+             SPDLOG_INFO(" vtable: {:x} (rel {:x})", (uintptr_t)potential_vtable, (uintptr_t)potential_vtable - (uintptr_t)*module_within);
+ 
+             auto is_vtable_d3d = [](std::string_view module_path_lower) {
+-                return module_path_lower.ends_with("d3d11.dll") || 
+-                module_path_lower.ends_with("d3d12.dll") || 
++                return module_path_lower.ends_with("d3d11.dll") ||
++                module_path_lower.ends_with("d3d12.dll") ||
+                 module_path_lower.ends_with("d3d12core.dll") ||
+                 module_path_lower.ends_with("dxgi.dll") ||
++                // When RenderDoc is embedded it wraps every D3D12 object, so the
++                // native resource behind an RHI texture is a RenderDoc wrapper
++                // whose vtable lives in renderdoc.dll. Accept it so stereo setup
++                // doesn't reject the (correct) wrapped resource and scan on into
++                // bad vtable slots — which crashes under embedded capture.
++                module_path_lower.ends_with("renderdoc.dll") ||
+                 module_path_lower.ends_with("d3d12sdklayers.dll") ||
+                 module_path_lower.ends_with("d3d11_1sdklayers.dll") ||
+                 module_path_lower.ends_with("d3d11_2sdklayers.dll") ||
+diff --git a/tests/ColorScaleLayoutTest.cpp b/tests/ColorScaleLayoutTest.cpp
+new file mode 100644
+index 0000000..368ad6f
+--- /dev/null
++++ b/tests/ColorScaleLayoutTest.cpp
+@@ -0,0 +1,52 @@
++#include "../src/sdk/SceneViewStereoLayout.hpp"
++#include <array>
++#include <cstddef>
++#include <cstdio>
++#include <cstring>
++
++// Layout from Joey's UE5.6/5.7 SDK, starting at the discovered Family field.
++struct UE56Tail {
++    void* family{};
++    void* scene_state{};
++    void* exposure_state{};
++    uint32_t actor_id{};
++    uint32_t actor_pad{};
++    void* actor{};
++    int32_t player_index{};
++    void* drawer{};
++    float background[4]{};
++    float overlay[4]{};
++    float color_scale[4]{1.0f, 0.8f, 0.6f, 1.0f};
++    uint32_t stereo_pass{2};
++};
++static_assert(offsetof(UE56Tail, color_scale) == 0x58);
++static_assert(offsetof(UE56Tail, stereo_pass) == 0x68);
++static_assert(sdk::scene_view_stereo_pass_delta(L"5.6", 0, 0) == 0x68);
++static_assert(sdk::scene_view_stereo_pass_delta(L"5.7", 0, 0) == 0x68);
++static_assert(sdk::scene_view_stereo_pass_delta(L"", 5, 6) == 0x68);
++static_assert(sdk::scene_view_stereo_pass_delta(L"", 5, 7) == 0x68);
++static_assert(sdk::scene_view_stereo_pass_delta(L"5.5", 5, 6) == 0x58);
++static_assert(sdk::scene_view_stereo_pass_delta(L"4.27", 0, 0) == 0x58);
++static_assert(sdk::scene_view_stereo_pass_delta(L"5.8", 0, 0) == 0x58);
++static_assert(sdk::scene_view_stereo_pass_delta(L"5.60", 0, 0) == 0x58);
++static_assert(sdk::scene_view_stereo_pass_delta(L"", 0, 0) == 0x58);
++
++int main() {
++    UE56Tail options{};
++    std::array<unsigned char, sizeof(options)> before{};
++    std::memcpy(before.data(), &options, sizeof(options));
++    const uint32_t primary = 1;
++    const auto offset = sdk::scene_view_stereo_pass_delta(L"5.6", 0, 0);
++    std::memcpy(reinterpret_cast<unsigned char*>(&options) + offset, &primary, sizeof(primary));
++    if (options.stereo_pass != primary ||
++        std::memcmp(before.data(), &options, offsetof(UE56Tail, stereo_pass)) != 0) {
++        return 1;
++    }
++    // Reproduce the old bug: writing the stereo flag changes the red multiplier.
++    UE56Tail old_options{};
++    std::memcpy(reinterpret_cast<unsigned char*>(&old_options) + 0x58, &primary, sizeof(primary));
++    if (old_options.color_scale[0] == 1.0f || old_options.stereo_pass != 2) {
++        return 2;
++    }
++    std::puts("PASS: version gates, old color corruption reproduced, corrected write preserves all color fields.");
++}

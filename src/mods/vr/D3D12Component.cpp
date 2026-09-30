@@ -549,6 +549,8 @@ vr::EVRCompositorError D3D12Component::on_frame(VR* vr) {
             params.InUEVelocityBuffer = &vr->rawVelocityDesc[nEye];
         params.UseUINT64 = vr->is_use_uint64();
         params.ShadingRate = vr->get_framewarp_shading_rate();
+        afw_cockpit::configure(vr->m_disable_moving_mask->value(),vr->m_near_history_translation->value(),vr->m_history_translation_cutoff->value());
+        afw_cockpit::EvaluationScope moving_mask_scope(cmdList);
         EvaluateFrameWarp(params);
     }
 

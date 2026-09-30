@@ -29,7 +29,10 @@ endif()
 
  
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
-add_compile_options($<$<CXX_COMPILER_ID:MSVC>:/MP>)
+option(UEVR_PARALLEL_COMPILATION "Enable concurrent MSVC compiler jobs" OFF)
+if(UEVR_PARALLEL_COMPILATION)
+    add_compile_options($<$<CXX_COMPILER_ID:MSVC>:/MP>)
+endif()
 
 # Enable PDB generation in release mode, but without the extra crap that RelWithDebInfo adds
 add_compile_options("$<$<CONFIG:Release>:/Zi>")
@@ -39,8 +42,7 @@ add_link_options("$<$<CONFIG:Release>:/OPT:ICF>")
 
 project(uevr-proj)
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /MP")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP")
+
 
 set(ASMJIT_STATIC ON CACHE BOOL "" FORCE)
 
@@ -62,6 +64,7 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 # UESDK is a PRIVATE submodule (praydog's SDK) so it can't be forked publicly to
 # carry the embedded-RenderDoc crash fix. Apply it to the builder's own checkout
 # before UESDK is added/compiled. Idempotent; warns (never fails) on drift.
+include(cmake/ACRCompatibility.cmake)
 include(cmake/ApplyUESDKPatch.cmake)
 
 add_subdirectory(dependencies/submodules/UESDK)
@@ -416,7 +419,6 @@ target_compile_features(plugin_renderlib PUBLIC
 
 target_compile_options(plugin_renderlib PUBLIC
 	"/EHa"
-	"/MP"
 )
 
 target_include_directories(plugin_renderlib PUBLIC
@@ -534,7 +536,6 @@ target_compile_features(vr-plugin-nullifier PUBLIC
 target_compile_options(vr-plugin-nullifier PUBLIC
 	"/GS-"
 	"/EHa"
-	"/MP"
 )
 
 target_link_libraries(vr-plugin-nullifier PUBLIC
@@ -683,7 +684,6 @@ target_compile_features(luavrlib PUBLIC
 target_compile_options(luavrlib PUBLIC
 	"/bigobj"
 	"/EHa"
-	"/MP"
 )
 
 target_include_directories(luavrlib PUBLIC
@@ -730,7 +730,6 @@ target_compile_features(LuaVR PUBLIC
 target_compile_options(LuaVR PUBLIC
 	"/bigobj"
 	"/EHa"
-	"/MP"
 )
 
 target_include_directories(LuaVR PUBLIC
@@ -793,6 +792,7 @@ list(APPEND uevr_SOURCES
 	"src/mods/vr/Bindings.cpp"
 	"src/mods/vr/CVarManager.cpp"
 	"src/mods/vr/D3D11Component.cpp"
+	"src/mods/vr/AFWCockpitFix.cpp"
 	"src/mods/vr/D3D12Component.cpp"
 	"src/mods/vr/FFakeStereoRenderingHook.cpp"
 	"src/mods/vr/IXRTrackingSystemHook.cpp"
@@ -886,7 +886,6 @@ target_compile_options(uevr PUBLIC
 	"/GS-"
 	"/bigobj"
 	"/EHa"
-	"/MP"
 )
 
 target_include_directories(uevr PUBLIC
@@ -963,3 +962,7 @@ uevr_attach_full_renderdoc(uevr)
 unset(CMKR_TARGET)
 unset(CMKR_SOURCES)
 
+
+add_custom_command(TARGET uevr POST_BUILD
+ COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/src/mods/vr/cockpit_shaders/AFWHistoryShaders.bin" $<TARGET_FILE_DIR:uevr>)
+add_subdirectory(plugins/ACR_AFWSingleViewCrashFix)

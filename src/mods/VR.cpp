@@ -24,6 +24,7 @@
 #include "utility/Logging.hpp"
 
 #include "VR.hpp"
+#include "vr/AFWPrimitiveHistory.hpp"
 #include <safetyhook.hpp>
 
 NVSDK_NGX_Result hk_NVSDK_NGX_D3D12_CreateFeature(
@@ -401,11 +402,13 @@ std::optional<std::string> VR::clean_initialize() try {
     pd::DeviceParams params{};
     params.d3d12Device = hook->get_device();
     params.d3d12Queue = hook->get_command_queue();
+    afw_cockpit::install_device(params.d3d12Device);
     d3d12Renderer = InitDevice(params);
 
     *(uintptr_t*)&ptrCreateDepthStencilView = hookVtable(params.d3d12Device, 21, hk_ID3D12Device_CreateDepthStencilView);
 
     auto cmdList = d3d12Renderer->BeginCommandList(0);
+    afw_cockpit::install_command(cmdList);
     {
         uintptr_t* pVTable = *(uintptr_t**)cmdList;
         DWORD dwOldProct = 0;
@@ -1774,6 +1777,8 @@ void VR::update_imgui_state_from_xinput_state(XINPUT_STATE& state, bool is_vr_co
 void VR::on_pre_engine_tick(sdk::UGameEngine* engine, float delta) {
     ZoneScopedN(__FUNCTION__);
 
+    afw_primitive_history::tick((sdk::UObject*)engine, is_hmd_active() && is_using_afw() && is_ghosting_fix_enabled());
+
     m_cvar_manager->on_pre_engine_tick(engine, delta);
     m_last_engine_tick = std::chrono::steady_clock::now();
 
@@ -3014,6 +3019,30 @@ void VR::on_draw_sidebar_entry(std::string_view name) {
                 ImGui::SetNextItemOpen(true, ImGuiCond_::ImGuiCond_Once);
                 if (ImGui::TreeNode("Alternate Frame Warping")) {
                     m_framewarp_mode->draw("Framewarp Mode");
+                    afw_primitive_history::draw();
+                    const auto cockpit=afw_cockpit::status();
+                    if(cockpit.supported_game&&ImGui::TreeNode("ACR cockpit stabilization")) {
+                        m_disable_moving_mask->draw("Allow moving cockpit history");
+                        m_near_history_translation->draw("Compensate cockpit camera movement");
+                        constexpr const char* cutoff_labels[]{"0.5 m","1 m","2 m","5 m","10 m"};
+                        int cutoff=afw_cockpit::cutoff_index(m_history_translation_cutoff->value());
+                        if(ImGui::Combo("Compensation cutoff",&cutoff,cutoff_labels,5))
+                            m_history_translation_cutoff->value()=afw_cockpit::cutoff_values[cutoff];
+                        if(!cockpit.shaders_ready)ImGui::TextWrapped("Shader data missing or invalid: keep AFWHistoryShaders.bin beside UEVRBackend.dll.");
+                        else if(cockpit.mask_selection==1&&cockpit.history_selection==1)ImGui::TextUnformatted("APPLIED - cockpit history and camera compensation active");
+                        else if(!m_disable_moving_mask->value()||!m_near_history_translation->value())ImGui::TextUnformatted("Partially disabled: enable both options for the full fix.");
+                        else ImGui::TextUnformatted("Waiting for AFW rendering.");
+                        ImGui::TextWrapped("Compensation strength: 1.0. Surfaces within the cutoff receive camera translation compensation; leaning parallax can be reduced.");
+                        if(ImGui::TreeNode("Status details")) {
+                            ImGui::Text("Mask pipelines: %u | History pipelines: %u",cockpit.mask_pipelines,cockpit.history_pipelines);
+                            ImGui::Text("Mask selections: %llu | Depth: %llu | Color: %llu",
+                                static_cast<unsigned long long>(cockpit.mask_selections),static_cast<unsigned long long>(cockpit.depth_selections),static_cast<unsigned long long>(cockpit.color_selections));
+                            if(cockpit.applied_cutoff>=0)ImGui::Text("Last applied cutoff: %.1f m",afw_cockpit::cutoff_values[cockpit.applied_cutoff]);
+                            if(FAILED(cockpit.error))ImGui::Text("Hook/pipeline error: %08lx",cockpit.error);
+                            ImGui::TreePop();
+                        }
+                        ImGui::TreePop();
+                    }
                     if (is_no_dlss()) {
                         ImGui::TextWrapped("No DLSS instance detected, are you sure you have turned on DLSS in-game?");
                     }

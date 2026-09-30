@@ -6,7 +6,10 @@
 name = "uevr-proj"
 cmake-before=""" 
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
-add_compile_options($<$<CXX_COMPILER_ID:MSVC>:/MP>)
+option(UEVR_PARALLEL_COMPILATION "Enable concurrent MSVC compiler jobs" OFF)
+if(UEVR_PARALLEL_COMPILATION)
+    add_compile_options($<$<CXX_COMPILER_ID:MSVC>:/MP>)
+endif()
 
 # Enable PDB generation in release mode, but without the extra crap that RelWithDebInfo adds
 add_compile_options("$<$<CONFIG:Release>:/Zi>")
@@ -15,8 +18,7 @@ add_link_options("$<$<CONFIG:Release>:/OPT:REF>")
 add_link_options("$<$<CONFIG:Release>:/OPT:ICF>")
 """
 cmake-after = """
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /MP")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP")
+
 
 set(ASMJIT_STATIC ON CACHE BOOL "" FORCE)
 
@@ -38,6 +40,7 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 # UESDK is a PRIVATE submodule (praydog's SDK) so it can't be forked publicly to
 # carry the embedded-RenderDoc crash fix. Apply it to the builder's own checkout
 # before UESDK is added/compiled. Idempotent; warns (never fails) on drift.
+include(cmake/ACRCompatibility.cmake)
 include(cmake/ApplyUESDKPatch.cmake)
 
 add_subdirectory(dependencies/submodules/UESDK)
@@ -257,7 +260,7 @@ include-directories = [
     "${OPENXR_SOURCE_DIR}/src",
     "dependencies/vendor/renderdoc"
 ]
-compile-options = ["/GS-", "/bigobj", "/EHa", "/MP"]
+compile-options = ["/GS-", "/bigobj", "/EHa"]
 compile-features = ["cxx_std_23"]
 compile-definitions = []
 link-libraries = [
@@ -311,6 +314,11 @@ add_custom_command(
 add_custom_command(
     TARGET uevr POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:openvr> $<TARGET_FILE_DIR:uevr>)
+
+add_custom_command(TARGET uevr POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    ${CMAKE_SOURCE_DIR}/src/mods/vr/cockpit_shaders/AFWHistoryShaders.bin $<TARGET_FILE_DIR:uevr>)
+add_subdirectory(plugins/ACR_AFWSingleViewCrashFix)
 
 # Build the RenderDoc launcher + smoke tools and stage renderdoc.dll beside
 # UEVRBackend.dll. No-op if RenderDoc isn't available on this machine.

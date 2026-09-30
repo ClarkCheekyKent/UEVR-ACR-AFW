@@ -1,3 +1,45 @@
+# UEVR ACR AFW cockpit fix
+
+Maintained by **ClarkCheekyKent**, based on PureDark's AFW branch and praydog's
+nightly 01143 compatibility changes. Upstream credits and license remain below.
+
+This build allows moving cockpit pixels to use AFW history, compensates nearby
+history color/depth together for camera translation, preserves the ACR N-2 car
+transform repair, and carries the UE5.6/5.7 stereo-layout/color-scale fix.
+The shader and native-game hooks are restricted to the supported Rally build
+(PE timestamp `050dbf19`, image size `0c143000`). Other games retain upstream AFW.
+The runtime AFW plugin binary is unchanged.
+
+## Use
+
+Start a fresh game session and inject using this build. Keep
+`AFWHistoryShaders.bin` next to `UEVRBackend.dll`. Use AFW CombinedWarping and
+Ghosting Fix. Under **Unreal > Alternate Frame Warping > ACR cockpit stabilization**,
+leave both options enabled. Compensation is fixed at 1; cutoff choices are
+**0.5, 1, 2, 5, 10 metres**, default **2**. Increase the cutoff to include farther
+cockpit surfaces. This correction applies to all covered surfaces within that
+depth, including head translation; leaning parallax can be reduced.
+
+Keep `ACR_AFWSingleViewCrashFix.dll` v0.4 as the separate mono/single-view
+compatibility plugin in the ACR profile. Do not also load the older
+`ACR_MonoCompatibility.dll`. ACR Camera Bridge and CheekyFoveatedDLSS remain
+separate plugins with their existing settings; this backend does not replace them.
+
+## Build
+
+Follow [COMPILING.md](COMPILING.md) with authenticated upstream UESDK access.
+The SDK is pinned to upstream; CMake applies `patches/UESDK-ACR-compatibility.patch`
+idempotently so this repository does not need a private SDK commit or SDK mirror.
+Use `cmake --build build --config Release --target uevr --parallel 1`.
+Concurrent compiler jobs default OFF to limit RAM. Build the separate compatibility
+DLL with target `ACR_AFWSingleViewCrashFix`. The five-cutoff shader data is copied
+beside the backend automatically; it is not embedded in shared C++ headers.
+
+The prior uncleaned package was confirmed working in the headset. This cleaned
+candidate must be verified in-game before making this repository public.
+
+---
+
 # UEVR + 🎬 Embedded RenderDoc Capture
 
 > **This is a fork of [praydog's UEVR](https://github.com/praydog/UEVR) that adds an embedded
