@@ -6,19 +6,30 @@ nightly 01143 compatibility changes. Upstream credits and license remain below.
 This build allows moving cockpit pixels to use AFW history, compensates nearby
 history color/depth together for camera translation, preserves the ACR N-2 car
 transform repair, and carries the UE5.6/5.7 stereo-layout/color-scale fix.
-The shader and native-game hooks are restricted to the supported Rally build
-(PE timestamp `050dbf19`, image size `0c143000`). Other games retain upstream AFW.
+The AFW shader corrections are available in other games as opt-in profile settings.
+They activate only for exactly matching AFW shader bytecode. The native car-history
+and mono hooks remain restricted to the supported Rally build
+(PE timestamp `050dbf19`, image size `0c143000`).
 The runtime AFW plugin binary is unchanged.
 
 ## Use
 
 Start a fresh game session and inject using this build. Keep
 `AFWHistoryShaders.bin` next to `UEVRBackend.dll`. Use AFW CombinedWarping and
-Ghosting Fix. Under **Unreal > Alternate Frame Warping > ACR cockpit stabilization**,
-leave both options enabled. Compensation is fixed at 1; cutoff choices are
+Ghosting Fix. Under **Unreal > Alternate Frame Warping > AFW motion compensation**,
+enable **Allow moving-object history** and **Compensate camera movement**.
+Both default ON for supported Rally and OFF for other games; existing profile
+values are preserved. Compensation is fixed at 1; cutoff choices are
 **0.5, 1, 2, 5, 10 metres**, default **2**. Increase the cutoff to include farther
 cockpit surfaces. This correction applies to all covered surfaces within that
 depth, including head translation; leaning parallax can be reduced.
+Other games require testing: independently moving nearby objects may be corrected
+incorrectly. These options do not perform Rally's native car-history repair elsewhere.
+
+For Rally, add `Engine_r.OneFrameThreadLag=0` to the profile's `cvars_data.txt`.
+This is required by the tested setup to prevent cross-eyed rendering. The tested
+Rally profile also keeps **Fix Object Motion Vector** OFF. These Rally settings
+are not automatically forced in other games.
 
 The working ACR mono/single-view compatibility guard (v0.3) is built into the backend.
 It guards ten native callers while preserving the shared stereo predicates.

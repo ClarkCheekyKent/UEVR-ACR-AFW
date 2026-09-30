@@ -3019,19 +3019,24 @@ void VR::on_draw_sidebar_entry(std::string_view name) {
                 ImGui::SetNextItemOpen(true, ImGuiCond_::ImGuiCond_Once);
                 if (ImGui::TreeNode("Alternate Frame Warping")) {
                     m_framewarp_mode->draw("Framewarp Mode");
-                    afw_primitive_history::draw();
                     const auto cockpit=afw_cockpit::status();
-                    if(cockpit.supported_game&&ImGui::TreeNode("ACR cockpit stabilization")) {
-                        m_disable_moving_mask->draw("Allow moving cockpit history");
-                        m_near_history_translation->draw("Compensate cockpit camera movement");
+                    if(cockpit.supported_game) afw_primitive_history::draw();
+                    if(ImGui::TreeNode("AFW motion compensation")) {
+                        m_disable_moving_mask->draw("Allow moving-object history");
+                        m_near_history_translation->draw("Compensate camera movement");
                         constexpr const char* cutoff_labels[]{"0.5 m","1 m","2 m","5 m","10 m"};
                         int cutoff=afw_cockpit::cutoff_index(m_history_translation_cutoff->value());
                         if(ImGui::Combo("Compensation cutoff",&cutoff,cutoff_labels,5))
                             m_history_translation_cutoff->value()=afw_cockpit::cutoff_values[cutoff];
-                        if(!cockpit.shaders_ready)ImGui::TextWrapped("Shader data missing or invalid: keep AFWHistoryShaders.bin beside UEVRBackend.dll.");
-                        else if(cockpit.mask_selection==1&&cockpit.history_selection==1)ImGui::TextUnformatted("APPLIED - cockpit history and camera compensation active");
-                        else if(!m_disable_moving_mask->value()||!m_near_history_translation->value())ImGui::TextUnformatted("Partially disabled: enable both options for the full fix.");
-                        else ImGui::TextUnformatted("Waiting for AFW rendering.");
+                        const bool moving_history=m_disable_moving_mask->value();
+                        const bool compensation=m_near_history_translation->value();
+                        if(!moving_history&&!compensation)ImGui::TextUnformatted("OFF - original AFW shaders selected");
+                        else if(!cockpit.shaders_ready)ImGui::TextWrapped("Shader data missing or invalid: keep AFWHistoryShaders.bin beside UEVRBackend.dll.");
+                        else if((!moving_history||cockpit.mask_pipelines>0)&&(!compensation||cockpit.history_pipelines>0)&&
+                            cockpit.mask_selection==int(moving_history)&&cockpit.history_selection==int(compensation))
+                            ImGui::TextUnformatted("APPLIED - selected motion corrections active");
+                        else ImGui::TextUnformatted("Waiting for compatible AFW shaders and the selected options to apply.");
+                        ImGui::TextWrapped("Intended for nearby surfaces that move with the camera, such as cockpits. Independently moving objects may need these options disabled.");
                         ImGui::TextWrapped("Compensation strength: 1.0. Surfaces within the cutoff receive camera translation compensation; leaning parallax can be reduced.");
                         if(ImGui::TreeNode("Status details")) {
                             ImGui::Text("Mask pipelines: %u | History pipelines: %u",cockpit.mask_pipelines,cockpit.history_pipelines);

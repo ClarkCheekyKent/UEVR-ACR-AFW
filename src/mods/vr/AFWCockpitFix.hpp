@@ -2,9 +2,10 @@
 #include <d3d12.h>
 #include <cstdint>
 
-// ACR-only AFW compatibility. Shader bytes and hook ownership live in the .cpp.
+// Game-independent AFW shader corrections. Native Rally hooks live separately.
 namespace afw_cockpit {
 inline constexpr float cutoff_values[]{0.5f, 1.0f, 2.0f, 5.0f, 10.0f};
+bool default_enabled();
 int cutoff_index(float metres);
 void configure(bool allow_moving_history, bool compensate_camera, float cutoff);
 void install_device(ID3D12Device* device);

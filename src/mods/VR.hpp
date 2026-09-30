@@ -1019,8 +1019,8 @@ private:
 
     const ModToggle::Ptr m_use_uint64{ModToggle::create(generate_name("AFW_UseUINT64"), false)};
     const ModSlider::Ptr m_history_translation_cutoff{ModSlider::create(generate_name("AFW_HistoryTranslationCutoff"), 0.5f, 10.0f, 2.0f)};
-    const ModToggle::Ptr m_near_history_translation{ModToggle::create(generate_name("AFW_NearHistoryTranslation"), true)};
-    const ModToggle::Ptr m_disable_moving_mask{ModToggle::create(generate_name("AFW_DisableMovingMaskWithCarHistory"), true)};
+    const ModToggle::Ptr m_near_history_translation{ModToggle::create(generate_name("AFW_NearHistoryTranslation"), afw_cockpit::default_enabled())};
+    const ModToggle::Ptr m_disable_moving_mask{ModToggle::create(generate_name("AFW_DisableMovingMaskWithCarHistory"), afw_cockpit::default_enabled())};
     const ModToggle::Ptr m_clear_before_framewarp{ModToggle::create(generate_name("AFW_ClearBeforeFramewarp"), false)};
     const ModToggle::Ptr m_fix_object_motion_vector{ModToggle::create(generate_name("AFW_FixObjectMotionVector"), true)};
     const ModSlider::Ptr m_fix_object_motion_range{ModSlider::create(generate_name("AFW_FixObjectMotionRange"), 0.0f, 10.0f, 3.0f)};

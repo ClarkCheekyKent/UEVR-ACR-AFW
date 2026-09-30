@@ -49,8 +49,8 @@ bool load_history_shaders(){
     return true;
 }
 
-std::atomic_bool enabled{true};
-std::atomic_bool history_enabled{true};
+std::atomic_bool enabled{false};
+std::atomic_bool history_enabled{false};
 std::atomic_int history_range{2}, applied_range{-1};
 std::atomic_uint history_ready_bits{0};
 std::atomic_uint64_t history_depth_bindings{0}, history_color_bindings{0};
@@ -100,8 +100,8 @@ HRESULT STDMETHODCALLTYPE create_pipeline(ID3D12Device* device,const D3D12_COMPU
     last_error=status;
     if(SUCCEEDED(status)) {
         std::lock_guard lock(pairs_mutex);pairs.push_back(std::move(p));if(variants){++history_pipelines;history_ready_bits.fetch_or(1u<<(shader-47));}else ++matched_pipelines;
-        spdlog::info("[ACR AFW cockpit] shader {} original/replacement PSOs ready",shader);
-    } else spdlog::error("[ACR AFW cockpit] replacement PSO failed {:08x}; keeping original",unsigned(status));
+        spdlog::info("[AFW motion compensation] shader {} original/replacement PSOs ready",shader);
+    } else spdlog::error("[AFW motion compensation] replacement PSO failed {:08x}; keeping original",unsigned(status));
     return hr; // Never change the plugin's creation result or returned original object.
 }
 void STDMETHODCALLTYPE bind_pipeline(ID3D12GraphicsCommandList* cmd,ID3D12PipelineState* state) {
@@ -135,6 +135,10 @@ bool supported_game() {
 }
 } // private hook state
 
+bool default_enabled() {
+    return supported_game(); // Preserve Rally defaults; other games opt in per profile.
+}
+
 int cutoff_index(float value) {
     if(!std::isfinite(value))return 2;
     int nearest=0;
@@ -153,19 +157,19 @@ Status status() {
     return result;
 }
 void install_device(ID3D12Device* device) {
-    if(create_hook_ready||!device||!supported_game())return;
-    if(!load_history_shaders()){last_error=HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);spdlog::error("[ACR AFW cockpit] missing/invalid AFWHistoryShaders.bin beside backend");return;}
+    if(create_hook_ready||!device)return;
+    if(!load_history_shaders()){last_error=HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);spdlog::error("[AFW motion compensation] missing/invalid AFWHistoryShaders.bin beside backend");return;}
     auto address=(*reinterpret_cast<void***>(device))[11]; // ID3D12Device::CreateComputePipelineState
     auto hook=safetyhook::InlineHook::create(address,reinterpret_cast<void*>(&create_pipeline));
     if(hook){create_hook=std::move(hook.value());create_hook_ready=true;}
-    else {last_error=E_FAIL;spdlog::error("[ACR AFW cockpit] compute creation hook failed");}
+    else {last_error=E_FAIL;spdlog::error("[AFW motion compensation] compute creation hook failed");}
 }
 void install_command(ID3D12GraphicsCommandList* cmd) {
-    if(bind_hook_ready||!cmd||!supported_game())return;
+    if(bind_hook_ready||!cmd)return;
     auto address=(*reinterpret_cast<void***>(cmd))[25]; // ID3D12GraphicsCommandList::SetPipelineState
     auto hook=safetyhook::InlineHook::create(address,reinterpret_cast<void*>(&bind_pipeline));
     if(hook){bind_hook=std::move(hook.value());bind_hook_ready=true;}
-    else {last_error=E_FAIL;spdlog::error("[ACR AFW cockpit] pipeline selection hook failed");}
+    else {last_error=E_FAIL;spdlog::error("[AFW motion compensation] pipeline selection hook failed");}
 }
 EvaluationScope::EvaluationScope(ID3D12GraphicsCommandList* command) {
     previous_list=active_list;previous_mask=frame_enabled;previous_history=frame_history_enabled;
