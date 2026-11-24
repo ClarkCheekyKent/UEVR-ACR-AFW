@@ -8,8 +8,9 @@ history color/depth together for camera translation, preserves the ACR N-2 car
 transform repair, and carries the UE5.6/5.7 stereo-layout/color-scale fix.
 The AFW shader corrections are available in other games as opt-in profile settings.
 They activate only for exactly matching AFW shader bytecode. The native car-history
-and mono hooks remain restricted to the supported Rally build
-(PE timestamp `050dbf19`, image size `0c143000`).
+and mono hooks remain restricted to the supported Rally builds
+(PE timestamp `050dbf19`, image size `0c143000`; and Rally 0.7:
+PE timestamp `6e94fbf7`, image size `0c21d000`).
 The runtime AFW plugin binary is unchanged.
 
 ## Use
@@ -32,7 +33,7 @@ Rally profile also keeps **Fix Object Motion Vector** OFF. These Rally settings
 are not automatically forced in other games.
 
 The working ACR mono/single-view compatibility guard (v0.3) is built into the backend.
-It guards ten native callers while preserving the shared stereo predicates.
+It guards ten native callers (twelve on Rally 0.7) while preserving the shared stereo predicates.
 It checks the executable version and native code before installing. When the
 built-in hook is installed, the plugin loader skips existing
 `ACR_AFWSingleViewCrashFix.dll` and `ACR_MonoCompatibility.dll` files to avoid
