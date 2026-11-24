@@ -457,6 +457,15 @@ private:
         std::recursive_mutex mtx{};
         safetyhook::InlineHook constructor_hook{};
         std::unordered_set<sdk::FSceneViewStateInterface*> known_scene_states;
+        // Subset of known_scene_states that was passed for an eye view (a view with a stereo pass),
+        // with the GetTickCount64 time each one was last passed.
+        std::unordered_map<sdk::FSceneViewStateInterface*, uint64_t> eye_scene_states;
+        // Consecutive two-view requests made to find the second eye's state.
+        uint32_t second_view_requests{};
+        // States the ghosting fix can pair. Falls back to every known state while no eye view was seen.
+        size_t ghosting_fix_state_count() const {
+            return eye_scene_states.empty() ? known_scene_states.size() : eye_scene_states.size();
+        }
         bool inside_post_init_properties{false};
 
         uint32_t last_frame_count{};
