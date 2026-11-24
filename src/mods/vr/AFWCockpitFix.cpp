@@ -130,8 +130,10 @@ bool supported_game() {
     const auto* dos=reinterpret_cast<const IMAGE_DOS_HEADER*>(image);
     if(dos->e_magic!=IMAGE_DOS_SIGNATURE||dos->e_lfanew<=0||dos->e_lfanew>0x100000)return false;
     const auto* pe=reinterpret_cast<const IMAGE_NT_HEADERS64*>(image+dos->e_lfanew);
-    return pe->Signature==IMAGE_NT_SIGNATURE&&pe->FileHeader.Machine==IMAGE_FILE_MACHINE_AMD64&&
-        pe->FileHeader.TimeDateStamp==0x050dbf19&&pe->OptionalHeader.SizeOfImage==0x0c143000;
+    if(pe->Signature!=IMAGE_NT_SIGNATURE||pe->FileHeader.Machine!=IMAGE_FILE_MACHINE_AMD64)return false;
+    const auto stamp=pe->FileHeader.TimeDateStamp;const auto size=pe->OptionalHeader.SizeOfImage;
+    return (stamp==0x050dbf19&&size==0x0c143000)||
+        (stamp==0x6e94fbf7&&size==0x0c21d000); // Assetto Corsa Rally 0.7
 }
 } // private hook state
 

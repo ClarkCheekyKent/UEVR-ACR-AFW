@@ -35,6 +35,23 @@ inline std::string status{"Waiting for supported ACR executable"};
 inline bool attempted{}, supported{};
 inline uint64_t ticks{};
 
+// One audited ACR executable. The hooked function is byte-identical between
+// these builds apart from relocated addresses and the FScene member offsets,
+// which moved together; the proxy and primitive-info offsets are unchanged.
+struct Build {
+    uint32_t timestamp, image_size;
+    uintptr_t function, wrapper, lookup_call; // RVAs
+    uint8_t wrapper_code[10], lookup_call_code[5];
+    size_t velocity_data; // FScene offset; its first field is the scene frame counter
+};
+inline constexpr Build builds[]{
+    {0x050dbf19, 0x0c143000, 0x2c76340, 0x2c76250, 0x2c76429,
+        {0x8b,0x52,0x10,0x48,0x81,0xc1,0x38,0x48,0,0}, {0xe8,0x42,0xf5,0xff,0xff}, 0x4838},
+    {0x6e94fbf7, 0x0c21d000, 0x2c2cc40, 0x2c2cb50, 0x2c2cd29, // Assetto Corsa Rally 0.7
+        {0x8b,0x52,0x10,0x48,0x81,0xc1,0x08,0x49,0,0}, {0xe8,0xb2,0xf4,0xff,0xff}, 0x4908},
+};
+inline std::atomic<size_t> velocity_data_offset{};
+
 template<class T> T read(const void* p, size_t offset = 0) {
     T v; std::memcpy(&v, static_cast<const uint8_t*>(p)+offset, sizeof(v)); return v;
 }
@@ -55,7 +72,7 @@ inline void uniform_parameters(void* scene, void* info, bool* volumetric,
         read<uintptr_t>((void*)proxy, 0x1f8) != (uintptr_t)info) return;
     ++matched;
     const Key key{(uintptr_t)scene, (uintptr_t)info, proxy, read<uint32_t>(info, 0x10)};
-    const auto frame = read<uint64_t>(scene, 0x4838);
+    const auto frame = read<uint64_t>(scene, velocity_data_offset.load(std::memory_order_relaxed));
     const auto current = read<Matrix>((void*)proxy, 0xe0);
     if (histories.size() >= 512 && !histories.contains(key)) histories.clear();
     Matrix result{};
@@ -82,24 +99,27 @@ inline bool install() {
     auto* nt = (IMAGE_NT_HEADERS64*)(base+dos->e_lfanew);
     // Timestamp and image size from the executable used for the native audit.
     const uint8_t prologue[]{0x4c,0x8b,0xdc,0x53,0x55,0x56,0x57,0x41,0x56,0x41,0x57,0x48,0x81,0xec,0xd8,0,0,0};
-    const uint8_t wrapper[]{0x8b,0x52,0x10,0x48,0x81,0xc1,0x38,0x48,0,0};
-    const uint8_t lookup_call[]{0xe8,0x42,0xf5,0xff,0xff};
-    if (nt->Signature != IMAGE_NT_SIGNATURE || nt->FileHeader.TimeDateStamp != 0x050dbf19 ||
-        nt->OptionalHeader.SizeOfImage != 0x0c143000 ||
-        std::memcmp(base+0x2c76340,prologue,sizeof(prologue)) ||
-        std::memcmp(base+0x2c76250,wrapper,sizeof(wrapper)) ||
-        std::memcmp(base+0x2c76429,lookup_call,sizeof(lookup_call))) {
+    const Build* build{};
+    if (nt->Signature == IMAGE_NT_SIGNATURE)
+        for (const auto& candidate : builds)
+            if (nt->FileHeader.TimeDateStamp == candidate.timestamp &&
+                nt->OptionalHeader.SizeOfImage == candidate.image_size) build = &candidate;
+    if (!build ||
+        std::memcmp(base+build->function,prologue,sizeof(prologue)) ||
+        std::memcmp(base+build->wrapper,build->wrapper_code,sizeof(build->wrapper_code)) ||
+        std::memcmp(base+build->lookup_call,build->lookup_call_code,sizeof(build->lookup_call_code))) {
         status = "ACR version/code mismatch: repair disabled";
         SPDLOG_WARN("[AFW primitive history] {}",status); return false;
     }
+    velocity_data_offset = build->velocity_data;
     // Publish the trampoline before enabling the hook on other engine threads.
-    uniform_hook = safetyhook::create_inline(base+0x2c76340, (void*)&uniform_parameters,
+    uniform_hook = safetyhook::create_inline(base+build->function, (void*)&uniform_parameters,
         safetyhook::InlineHook::StartDisabled);
     if (!uniform_hook) { status="Could not install primitive history repair"; return false; }
     if (!uniform_hook.enable()) { status="Could not enable primitive history repair"; return false; }
     supported=true;
     status="Installed; waiting for car";
-    SPDLOG_INFO("[AFW primitive history] native shader-parameter repair installed at {:x}",(uintptr_t)base+0x2c76340);
+    SPDLOG_INFO("[AFW primitive history] native shader-parameter repair installed at {:x}",(uintptr_t)base+build->function);
     return true;
 }
 
