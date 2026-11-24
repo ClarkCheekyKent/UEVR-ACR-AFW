@@ -3200,27 +3200,82 @@ sdk::FSceneView* FFakeStereoRenderingHook::sceneview_constructor(sdk::FSceneView
         }
     }
 
-    if (init_options_scene_state != nullptr && !new_scene_state_inserted_this_frame && vr->is_ghosting_fix_enabled() && !known_scene_states.empty() && vr->is_using_afr() && true_index == 1) {
+    // The viewport can also build views that are not an eye (ACR renders small full-pass
+    // views, one per frame, each with its own state). Those must neither receive the
+    // ghosting fix nor lend their state to an eye: a shared state is overwritten by its
+    // owner, and the pairing below would keep pointing at it after its owner is gone.
+    // Eye views are recognised by their stereo pass. A game whose views never carry one
+    // keeps the previous behaviour of treating every view and every known state as an eye.
+    auto& eye_scene_states = g_hook->m_sceneview_data.eye_scene_states;
+    const auto now = GetTickCount64();
+
+    if (init_options_scene_state != nullptr && init_options_stereo_pass != EStereoscopicPass::eSSP_FULL) {
+        eye_scene_states[init_options_scene_state] = now;
+    }
+
+    const auto tracks_eye_states = !eye_scene_states.empty();
+    const auto is_eye_view = !tracks_eye_states || init_options_stereo_pass != EStereoscopicPass::eSSP_FULL;
+
+    if (init_options_scene_state != nullptr && !new_scene_state_inserted_this_frame && vr->is_ghosting_fix_enabled() && !known_scene_states.empty() && vr->is_using_afr() && true_index == 1 && is_eye_view) {
         init_options->set_stereo_pass(EStereoscopicPass::eSSP_PRIMARY);
         auto& eye_pair = g_hook->m_sceneview_data.m_ghosting_fix_pair;
         if (eye_pair.eye_state[0] == init_options_scene_state) {
             eye_pair.last_seen_frame = g_frame_count;
-        } else if (eye_pair.eye_state == nullptr || g_frame_count - eye_pair.last_seen_frame > 90) {
+        } else if (eye_pair.eye_state[0] == nullptr || g_frame_count - eye_pair.last_seen_frame > 90) {
+            // The game moved on to another state. The previous pair may have been freed, so forget it.
+            for (auto stale : eye_pair.eye_state) {
+                if (stale != nullptr && stale != init_options_scene_state) {
+                    known_scene_states.erase(stale);
+                    eye_scene_states.erase(stale);
+                }
+            }
+
             eye_pair.eye_state[0] = init_options_scene_state;
             eye_pair.eye_state[1] = nullptr;
+            eye_pair.last_seen_frame = g_frame_count;
+            g_hook->m_sceneview_data.second_view_requests = 0;
         }
         if (eye_pair.eye_state[0] == init_options_scene_state && eye_pair.eye_state[1]) {
             init_options->set_scene_state(eye_pair.eye_state[1]);
         }
         if (eye_pair.eye_state[0] == init_options_scene_state && !eye_pair.eye_state[1]) {
-            // Set the scene state to the one that isn't the current one
-            for (auto scene_state : known_scene_states) {
-                if (scene_state != init_options_scene_state) {
-                    SPDLOG_INFO_ONCE("Setting scene state to {:x}", (uintptr_t)scene_state);
-                    init_options->set_scene_state(scene_state);
-                    eye_pair.eye_state[1] = scene_state;
-                    break;
+            // Set the scene state to another eye's state
+            sdk::FSceneViewStateInterface* partner{};
+
+            if (tracks_eye_states) {
+                // Only a state the game passed recently is known to be alive. Older ones are
+                // dropped; with fewer than two left, get_desired_number_of_views_hook asks the
+                // game for both views again, which shows the second eye's current state.
+                constexpr uint64_t max_age_ms = 2000;
+                uint64_t partner_seen{};
+
+                for (auto it = eye_scene_states.begin(); it != eye_scene_states.end();) {
+                    if (it->first == init_options_scene_state) {
+                        ++it;
+                    } else if (now - it->second > max_age_ms) {
+                        known_scene_states.erase(it->first);
+                        it = eye_scene_states.erase(it);
+                    } else {
+                        if (partner == nullptr || it->second > partner_seen) {
+                            partner = it->first;
+                            partner_seen = it->second;
+                        }
+                        ++it;
+                    }
                 }
+            } else {
+                for (auto scene_state : known_scene_states) {
+                    if (scene_state != init_options_scene_state) {
+                        partner = scene_state;
+                        break;
+                    }
+                }
+            }
+
+            if (partner != nullptr) {
+                SPDLOG_INFO("Ghosting fix: pairing scene state {:x} with {:x}", (uintptr_t)init_options_scene_state, (uintptr_t)partner);
+                init_options->set_scene_state(partner);
+                eye_pair.eye_state[1] = partner;
             }
         }
     }
@@ -5483,11 +5538,19 @@ uint32_t FFakeStereoRenderingHook::get_desired_number_of_views_hook(FFakeStereoR
         // We need to know about the second scene state to fix ghosting, so set the view count to 2
         // after we know about it, we can continue returning 1.
         if (is_stereo_enabled && vr->is_ghosting_fix_enabled() && vr->is_using_afr() &&
-            g_hook->m_sceneview_data.known_scene_states.size() < 2 && g_hook->m_fixed_localplayer_view_count &&
+            g_hook->m_sceneview_data.ghosting_fix_state_count() < 2 && g_hook->m_fixed_localplayer_view_count &&
             !!g_hook->m_sceneview_data.constructor_hook && g_hook->m_has_view_extensions_installed)
         {
             // Only works correctly if view extensions are installed, so we can reset the view count to 1 without crashing
-            return 2;
+            // Give up if the second view never brings a state of its own, instead of rendering two views forever.
+            constexpr uint32_t max_second_view_requests = 600;
+
+            if (g_hook->m_sceneview_data.second_view_requests < max_second_view_requests) {
+                ++g_hook->m_sceneview_data.second_view_requests;
+                return 2;
+            }
+
+            SPDLOG_WARN_ONCE("Ghosting fix: no second eye scene state was found, leaving the view count at 1");
         }
 
         return 1;
@@ -5938,6 +6001,9 @@ void FFakeStereoRenderingHook::post_init_properties(uintptr_t localplayer) {
     }
 
     g_hook->m_sceneview_data.known_scene_states.clear();
+    g_hook->m_sceneview_data.eye_scene_states.clear();
+    g_hook->m_sceneview_data.m_ghosting_fix_pair = {};
+    g_hook->m_sceneview_data.second_view_requests = 0;
     g_hook->m_fixed_localplayer_view_count = true;
 }
 
